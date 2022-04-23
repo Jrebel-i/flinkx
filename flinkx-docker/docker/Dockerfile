@@ -42,23 +42,34 @@ COPY flinkx-dist $FLINKX_HOME
 RUN chown -R flink:flink $FLINKX_HOME
 
 # Install Arthas
-ENV ARTHAS_HOME=/opt/arthas
-RUN mkdir $ARTHAS_HOME; \
-    wget -nv -O $ARTHAS_HOME/arthas.zip https://arthas.aliyun.com/download/3.5.1?mirror=center; \
-    cd $ARTHAS_HOME; \
-    unzip arthas.zip; \
-    rm arthas.zip
+#ENV ARTHAS_HOME=/opt/arthas
+#RUN mkdir $ARTHAS_HOME; \
+#    wget -nv -O $ARTHAS_HOME/arthas.zip https://arthas.aliyun.com/download/3.5.1?mirror=center; \
+#    cd $ARTHAS_HOME; \
+#    unzip arthas.zip; \
+#    rm arthas.zip
 
 # Install Flink
+# Already downloaded flink.tgz
+#COPY flink.tgz $FLINK_HOME
+#RUN set -ex; \
+#    cd $FLINK_HOME; \
+#    tar -xf flink.tgz --strip-components=1; \
+#    rm flink.tgz; \
+#    chown -R flink:flink .; \
+
+# Did not download flink.tgz
 RUN set -ex; \
   cd $FLINK_HOME; \
-  wget -nv -O flink.tgz https://archive.apache.org/dist/flink/flink-1.12.2/flink-1.12.2-bin-scala_2.12.tgz; \
+  wget -nv -O flink.tgz https://archive.apache.org/dist/flink/flink-1.12.7/flink-1.12.7-bin-scala_2.12.tgz; \
   tar -xf flink.tgz --strip-components=1; \
   rm flink.tgz; \
   chown -R flink:flink .;
 
 # Configure container
 COPY docker-entrypoint.sh /
+RUN chmod +x /docker-entrypoint.sh
+
 ENTRYPOINT ["/docker-entrypoint.sh"]
 EXPOSE 6123 8081
 CMD ["help"]

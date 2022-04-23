@@ -20,6 +20,7 @@ package com.dtstack.flinkx.security;
 
 import com.dtstack.flinkx.constants.ConstantValue;
 import com.dtstack.flinkx.throwable.FlinkxRuntimeException;
+import com.dtstack.flinkx.util.FileSystemUtil;
 import com.dtstack.flinkx.util.JsonUtil;
 import com.dtstack.flinkx.util.Md5Util;
 
@@ -75,6 +76,27 @@ public class KerberosUtil {
         createDir(LOCAL_CACHE_DIR);
     }
 
+    public static UserGroupInformation loginAndReturnUgi(Map<String, Object> hadoopConfig) {
+        String keytabFileName = KerberosUtil.getPrincipalFileName(hadoopConfig);
+        keytabFileName = KerberosUtil.loadFile(hadoopConfig, keytabFileName);
+
+        String principal = KerberosUtil.getPrincipal(hadoopConfig, keytabFileName);
+        KerberosUtil.loadKrb5Conf(hadoopConfig, null);
+
+        Configuration conf = FileSystemUtil.getConfiguration(hadoopConfig, null);
+
+        UserGroupInformation ugi;
+        try {
+            ugi = KerberosUtil.loginAndReturnUgi(conf, principal, keytabFileName);
+        } catch (Exception e) {
+            throw new RuntimeException("Login kerberos error:", e);
+        }
+
+        LOG.info("current ugi:{}", ugi);
+
+        return ugi;
+    }
+
     public static UserGroupInformation loginAndReturnUgi(KerberosConfig kerberosConfig)
             throws IOException {
         String principal = kerberosConfig.getPrincipal();
@@ -82,6 +104,26 @@ public class KerberosUtil {
         String krb5confPath = kerberosConfig.getKrb5conf();
         LOG.info("Kerberos login with principal: {} and keytab: {}", principal, keytabPath);
         return loginAndReturnUgi(principal, keytabPath, krb5confPath);
+    }
+
+    public static UserGroupInformation loginAndReturnUgi(
+            Configuration conf, String principal, String keytab) throws IOException {
+        if (conf == null) {
+            throw new IllegalArgumentException("kerberos conf can not be null");
+        }
+
+        if (StringUtils.isEmpty(principal)) {
+            throw new IllegalArgumentException("principal can not be null");
+        }
+
+        if (StringUtils.isEmpty(keytab)) {
+            throw new IllegalArgumentException("keytab can not be null");
+        }
+        conf.set("hadoop.security.authentication", "Kerberos");
+        UserGroupInformation.setConfiguration(conf);
+
+        LOG.info("login user:{} with keytab:{}", principal, keytab);
+        return UserGroupInformation.loginUserFromKeytabAndReturnUGI(principal, keytab);
     }
 
     public static UserGroupInformation loginAndReturnUgi(
@@ -190,7 +232,7 @@ public class KerberosUtil {
         return loadFile(kerberosConfig, filePath, null);
     }
 
-    private static void checkFileExists(String filePath) {
+    public static void checkFileExists(String filePath) {
         File file = new File(filePath);
         if (file.exists()) {
             if (file.isDirectory()) {

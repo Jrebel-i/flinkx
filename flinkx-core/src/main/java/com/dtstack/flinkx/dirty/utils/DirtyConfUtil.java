@@ -62,14 +62,10 @@ public class DirtyConfUtil {
         if (type.equals("jdbc")) {
             type = "mysql";
         }
-        long maxConsumed = Long.parseLong(String.valueOf(confMap.getOrDefault(MAX_ROWS_KEY, "1")));
+        long maxConsumed = Long.parseLong(String.valueOf(confMap.getOrDefault(MAX_ROWS_KEY, "0")));
         long maxFailed =
-                Long.parseLong(String.valueOf(confMap.getOrDefault(MAX_FAILED_ROWS_KEY, "1")));
-        long printRate =
-                Long.parseLong(
-                        String.valueOf(
-                                confMap.getOrDefault(
-                                        PRINT_INTERVAL, String.valueOf(Long.MAX_VALUE))));
+                Long.parseLong(String.valueOf(confMap.getOrDefault(MAX_FAILED_ROWS_KEY, "0")));
+        long printRate = Long.parseLong(String.valueOf(confMap.getOrDefault(PRINT_INTERVAL, "1")));
         String pluginDir = MapUtils.getString(confMap, DIRTY_DIR);
 
         confMap.entrySet().stream()
@@ -88,9 +84,9 @@ public class DirtyConfUtil {
                                         item.getValue()));
 
         dirtyConf.setType(type);
-        dirtyConf.setMaxConsumed(maxConsumed);
-        dirtyConf.setMaxFailedConsumed(maxFailed);
-        dirtyConf.setPrintRate(printRate);
+        dirtyConf.setMaxConsumed(maxConsumed < 0 ? Long.MAX_VALUE : maxConsumed);
+        dirtyConf.setMaxFailedConsumed(maxFailed < 0 ? Long.MAX_VALUE : maxFailed);
+        dirtyConf.setPrintRate(printRate <= 0 ? Long.MAX_VALUE : printRate);
         dirtyConf.setPluginProperties(pluginProperties);
         dirtyConf.setLocalPluginPath(pluginDir);
 

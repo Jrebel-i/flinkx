@@ -20,9 +20,11 @@ package com.dtstack.flinkx.connector.elasticsearch7.source;
 
 import com.dtstack.flinkx.conf.FieldConf;
 import com.dtstack.flinkx.conf.SyncConf;
-import com.dtstack.flinkx.connector.elasticsearch7.conf.ElasticsearchConf;
-import com.dtstack.flinkx.connector.elasticsearch7.converter.ElasticsearchColumnConverter;
-import com.dtstack.flinkx.connector.elasticsearch7.converter.ElasticsearchRawTypeConverter;
+import com.dtstack.flinkx.connector.elasticsearch.ElasticsearchColumnConverter;
+import com.dtstack.flinkx.connector.elasticsearch.ElasticsearchRawTypeMapper;
+import com.dtstack.flinkx.connector.elasticsearch.ElasticsearchRowConverter;
+import com.dtstack.flinkx.connector.elasticsearch7.ElasticsearchConf;
+import com.dtstack.flinkx.converter.AbstractRowConverter;
 import com.dtstack.flinkx.converter.RawTypeConverter;
 import com.dtstack.flinkx.source.SourceFactory;
 import com.dtstack.flinkx.util.JsonUtil;
@@ -68,12 +70,18 @@ public class Elasticsearch7SourceFactory extends SourceFactory {
         builder.setEsConf(elasticsearchConf);
         final RowType rowType =
                 TableUtil.createRowType(elasticsearchConf.getColumn(), getRawTypeConverter());
-        builder.setRowConverter(new ElasticsearchColumnConverter(rowType));
+        AbstractRowConverter rowConverter;
+        if (useAbstractBaseColumn) {
+            rowConverter = new ElasticsearchColumnConverter(rowType);
+        } else {
+            rowConverter = new ElasticsearchRowConverter(rowType);
+        }
+        builder.setRowConverter(rowConverter);
         return createInput(builder.finish());
     }
 
     @Override
     public RawTypeConverter getRawTypeConverter() {
-        return ElasticsearchRawTypeConverter::apply;
+        return ElasticsearchRawTypeMapper::apply;
     }
 }

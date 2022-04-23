@@ -270,6 +270,7 @@ public class HiveOutputFormat extends BaseRichOutputFormat {
         if (outputFormat == null) {
             HiveUtil.createPartition(
                     tableInfo,
+                    hiveConf.getSchema(),
                     partitionPath,
                     connectionInfo,
                     getRuntimeContext().getDistributedCache());
@@ -299,6 +300,7 @@ public class HiveOutputFormat extends BaseRichOutputFormat {
             HiveConf copyHiveConf =
                     GsonUtil.GSON.fromJson(GsonUtil.GSON.toJson(hiveConf), HiveConf.class);
             copyHiveConf.setPath(path);
+            copyHiveConf.setFileName(null);
             List<String> columnNameList = tableInfo.getColumnNameList();
             List<String> columnTypeList = tableInfo.getColumnTypeList();
             List<FieldConf> fieldConfList = new ArrayList<>(columnNameList.size());
@@ -325,7 +327,6 @@ public class HiveOutputFormat extends BaseRichOutputFormat {
             BaseHdfsOutputFormat outputFormat = (BaseHdfsOutputFormat) builder.finish();
             outputFormat.setFormatId(hiveTablePath);
             outputFormat.setDirtyDataManager(dirtyDataManager);
-            outputFormat.setErrorLimiter(errorLimiter);
             outputFormat.setRuntimeContext(getRuntimeContext());
             outputFormat.setRestoreState(formatStateMap.get(hiveTablePath));
             outputFormat.configure(parameters);
@@ -380,7 +381,10 @@ public class HiveOutputFormat extends BaseRichOutputFormat {
             }
             tableInfo.setTablePath(tablePath);
             HiveUtil.createHiveTableWithTableInfo(
-                    tableInfo, connectionInfo, getRuntimeContext().getDistributedCache());
+                    tableInfo,
+                    hiveConf.getSchema(),
+                    connectionInfo,
+                    getRuntimeContext().getDistributedCache());
             tableCacheMap.put(tablePath, tableInfo);
         }
         return tableInfo;

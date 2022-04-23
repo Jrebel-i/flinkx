@@ -50,12 +50,11 @@ import java.util.Locale;
  * @author jiangbo
  * @date 2019/12/16
  */
-public class OracleLogMinerInputFormatBuilder extends BaseRichInputFormatBuilder {
-
-    private final OracleLogMinerInputFormat format;
+public class OracleLogMinerInputFormatBuilder
+        extends BaseRichInputFormatBuilder<OracleLogMinerInputFormat> {
 
     public OracleLogMinerInputFormatBuilder() {
-        super.format = format = new OracleLogMinerInputFormat();
+        super(new OracleLogMinerInputFormat());
     }
 
     public void setLogMinerConfig(LogMinerConf logMinerConf) {
@@ -92,6 +91,11 @@ public class OracleLogMinerInputFormatBuilder extends BaseRichInputFormatBuilder
         if (config.getFetchSize() < 1) {
             sb.append("fetchSize must bigger than 0;\n");
         }
+
+        if (config.getPavingData() && config.isSplit()) {
+            throw new IllegalArgumentException("can't use pavingData and split at the same time");
+        }
+
         List<String> list =
                 Arrays.asList(
                         LogMinerConnection.ReadPosition.ALL.name(),

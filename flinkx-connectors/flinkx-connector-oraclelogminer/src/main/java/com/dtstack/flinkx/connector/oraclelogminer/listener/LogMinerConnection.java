@@ -37,6 +37,7 @@ import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -168,16 +169,7 @@ public class LogMinerConnection {
         try {
             ClassUtil.forName(logMinerConfig.getDriverName(), getClass().getClassLoader());
 
-            connection =
-                    RetryUtil.executeWithRetry(
-                            () ->
-                                    DriverManager.getConnection(
-                                            logMinerConfig.getJdbcUrl(),
-                                            logMinerConfig.getUsername(),
-                                            logMinerConfig.getPassword()),
-                            RETRY_TIMES,
-                            SLEEP_TIME,
-                            false);
+            connection = getConnection();
 
             oracleInfo = getOracleInfo(connection);
 
@@ -519,7 +511,7 @@ public class LogMinerConnection {
     }
 
     /** 根据leftScn 以及加载的日志大小限制 获取可加载的scn范围 以及此范围对应的日志文件 */
-    protected BigInteger getEndScn(BigInteger startScn, List<LogFile> logFiles)
+    protected Pair<BigInteger, Boolean> getEndScn(BigInteger startScn, List<LogFile> logFiles)
             throws SQLException {
 
         List<LogFile> logFileLists = new ArrayList<>();
@@ -566,6 +558,7 @@ public class LogMinerConnection {
                                         .collect(Collectors.toList())));
 
         BigInteger endScn = startScn;
+        Boolean loadRedoLog = false;
 
         long fileSize = 0L;
         Collection<List<LogFile>> values = map.values();
@@ -607,10 +600,16 @@ public class LogMinerConnection {
             // 解决logminer偶尔丢失数据问题，读取online日志的时候，需要将rightScn置为当前SCN
             endScn = getCurrentScn();
             logFiles = logFileLists;
+            // 如果加载了online日志  则loadRedoLog为true
+            loadRedoLog = true;
         }
 
-        LOG.info("getEndScn success,startScn:{},endScn:{}", startScn, endScn);
-        return endScn;
+        LOG.info(
+                "getEndScn success,startScn:{},endScn:{}, loadRedoLog:{}",
+                startScn,
+                endScn,
+                loadRedoLog);
+        return Pair.of(endScn, loadRedoLog);
     }
 
     /** 获取logminer加载的日志文件 */
@@ -758,6 +757,18 @@ public class LogMinerConnection {
                 String redo = sqlRedo.toString();
                 String hexStr = new String(Hex.encodeHex(redo.getBytes("GBK")));
                 boolean hasChange = false;
+
+                // delete 条件不以'结尾 如 where id = '1 以?结尾的需要加上'
+                if (operationCode == 2 && hexStr.endsWith("3f")) {
+                    LOG.info(
+                            "current scn is: {},\noriginal redo sql is: {},\nhex redo string is: {}",
+                            scn,
+                            redo,
+                            hexStr);
+                    hexStr = hexStr + "27";
+                    hasChange = true;
+                }
+
                 if (operationCode == 1 && hexStr.contains("3f2c")) {
                     LOG.info(
                             "current scn is: {},\noriginal redo sql is: {},\nhex redo string is: {}",
@@ -1103,5 +1114,28 @@ public class LogMinerConnection {
         READABLE,
         READEND,
         FAILED
+    }
+
+    protected Connection getConnection() {
+        java.util.Properties info = new java.util.Properties();
+        if (logMinerConfig.getUsername() != null) {
+            info.put("user", logMinerConfig.getUsername());
+        }
+        if (logMinerConfig.getPassword() != null) {
+            info.put("password", logMinerConfig.getPassword());
+        }
+
+        // queryTimeOut 单位是秒 需要转为毫秒
+        info.put("oracle.jdbc.ReadTimeout", (logMinerConfig.getQueryTimeout() + 60) * 1000 + "");
+
+        if (Objects.nonNull(logMinerConfig.getProperties())) {
+            logMinerConfig.getProperties().forEach(info::put);
+        }
+        LOG.info("connection properties is {}", info);
+        return RetryUtil.executeWithRetry(
+                () -> DriverManager.getConnection(logMinerConfig.getJdbcUrl(), info),
+                RETRY_TIMES,
+                SLEEP_TIME,
+                false);
     }
 }

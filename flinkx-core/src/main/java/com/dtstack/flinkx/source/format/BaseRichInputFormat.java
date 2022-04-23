@@ -139,7 +139,7 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
         ExecutionConfig.GlobalJobParameters params =
                 context.getExecutionConfig().getGlobalJobParameters();
         DirtyConf dc = DirtyConfUtil.parseFromMap(params.toMap());
-        this.dirtyManager = new DirtyManager(dc);
+        this.dirtyManager = new DirtyManager(dc, this.context);
 
         if (inputSplit instanceof ErrorInputSplit) {
             throw new RuntimeException(((ErrorInputSplit) inputSplit).getErrorMessage());
@@ -191,7 +191,7 @@ public abstract class BaseRichInputFormat extends RichInputFormat<RowData, Input
         try {
             internalRow = nextRecordInternal(rowData);
         } catch (ReadRecordException e) {
-            dirtyManager.collect(e.getRowData().toString(), e, null, getRuntimeContext());
+            dirtyManager.collect(e.getRowData(), e, null);
         }
         if (internalRow != null) {
             updateDuration();

@@ -31,7 +31,6 @@ import com.dtstack.flinkx.util.TableUtil;
 import com.dtstack.flinkx.util.TelnetUtil;
 
 import org.apache.flink.table.types.logical.LogicalType;
-import org.apache.flink.util.CollectionUtil;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -61,8 +60,6 @@ import java.util.regex.Pattern;
  * @author huyifan_zju@
  */
 public class JdbcUtil {
-    /** jdbc连接URL的分割正则，用于获取URL?后的连接参数 */
-    public static final Pattern DB_PATTERN = Pattern.compile("\\?");
     /** 增量任务过滤条件占位符 */
     public static final String INCREMENT_FILTER_PLACEHOLDER = "${incrementFilter}";
     /** 断点续传过滤条件占位符 */
@@ -71,7 +68,6 @@ public class JdbcUtil {
     public static final String TEMPORARY_TABLE_NAME = "flinkx_tmp";
     public static final String NULL_STRING = "null";
     private static final Logger LOG = LoggerFactory.getLogger(JdbcUtil.class);
-    public static int NANOS_PART_LENGTH = 9;
     /** 数据库连接的最大重试次数 */
     private static final int MAX_RETRY_TIMES = 3;
     /** 秒级时间戳的长度为10位 */
@@ -84,6 +80,8 @@ public class JdbcUtil {
     private static final int NANOS_LENGTH = 19;
 
     private static final int FORMAT_TIME_NANOS_LENGTH = 29;
+    private static final String ALL_TABLE = "*";
+    public static int NANOS_PART_LENGTH = 9;
 
     /**
      * 获取JDBC连接
@@ -125,22 +123,27 @@ public class JdbcUtil {
     /**
      * get full column name and type from database
      *
+     * @param cataLog cataLog
      * @param schema schema
      * @param tableName tableName
      * @param dbConn jdbc Connection
      * @return fullColumnList and fullColumnTypeList
      */
     public static Pair<List<String>, List<String>> getTableMetaData(
-            String schema, String tableName, Connection dbConn) {
+            String cataLog, String schema, String tableName, Connection dbConn) {
         try {
             // check table exists
-            ResultSet tableRs = dbConn.getMetaData().getTables(null, schema, tableName, null);
+            if (ALL_TABLE.equalsIgnoreCase(tableName.trim())) {
+                return Pair.of(new LinkedList<>(), new LinkedList<>());
+            }
+
+            ResultSet tableRs = dbConn.getMetaData().getTables(cataLog, schema, tableName, null);
             if (!tableRs.next()) {
                 String tableInfo = schema == null ? tableName : schema + "." + tableName;
                 throw new FlinkxRuntimeException(String.format("table %s not found.", tableInfo));
             }
 
-            ResultSet rs = dbConn.getMetaData().getColumns(null, schema, tableName, null);
+            ResultSet rs = dbConn.getMetaData().getColumns(cataLog, schema, tableName, null);
             List<String> fullColumnList = new LinkedList<>();
             List<String> fullColumnTypeList = new LinkedList<>();
             while (rs.next()) {
@@ -168,7 +171,8 @@ public class JdbcUtil {
         ResultSet rs = dbConn.getMetaData().getIndexInfo(null, schema, tableName, true, false);
         List<String> indexList = new LinkedList<>();
         while (rs.next()) {
-            indexList.add(rs.getString(9));
+            String index = rs.getString(9);
+            if (StringUtils.isNotBlank(index)) indexList.add(index);
         }
         return indexList;
     }
@@ -367,42 +371,37 @@ public class JdbcUtil {
     }
 
     /**
-     * 格式化jdbc连接
+     * Add additional parameters to jdbc properties，for MySQL
      *
-     * @param dbUrl 原jdbc连接
-     * @param extParamMap 需要额外添加的参数
-     * @return 格式化后jdbc连接URL字符串
+     * @param jdbcConf jdbc datasource configuration
+     * @return
      */
-    public static String formatJdbcUrl(String dbUrl, Map<String, String> extParamMap) {
-        String[] splits = DB_PATTERN.split(dbUrl);
-
-        Map<String, String> paramMap = new HashMap<>(16);
-        if (splits.length > 1) {
-            String[] pairs = splits[1].split("&");
-            for (String pair : pairs) {
-                String[] leftRight = pair.split("=");
-                paramMap.put(leftRight[0], leftRight[1]);
-            }
+    public static void putExtParam(JdbcConf jdbcConf) {
+        Properties properties = jdbcConf.getProperties();
+        if (properties == null) {
+            properties = new Properties();
         }
+        properties.putIfAbsent("useCursorFetch", "true");
+        properties.putIfAbsent("rewriteBatchedStatements", "true");
+        jdbcConf.setProperties(properties);
+    }
 
-        if (!CollectionUtil.isNullOrEmpty(extParamMap)) {
-            paramMap.putAll(extParamMap);
+    /**
+     * Add additional parameters to jdbc properties，
+     *
+     * @param jdbcConf jdbc datasource configuration
+     * @param extraProperties default customConfiguration
+     * @return
+     */
+    public static void putExtParam(JdbcConf jdbcConf, Properties extraProperties) {
+        Properties properties = jdbcConf.getProperties();
+        if (properties == null) {
+            properties = new Properties();
         }
-        paramMap.put("useCursorFetch", "true");
-        paramMap.put("rewriteBatchedStatements", "true");
+        Properties finalProperties = properties;
+        extraProperties.forEach(finalProperties::putIfAbsent);
 
-        StringBuffer sb = new StringBuffer(dbUrl.length() + 128);
-        sb.append(splits[0]).append("?");
-        int index = 0;
-        for (Map.Entry<String, String> entry : paramMap.entrySet()) {
-            if (index != 0) {
-                sb.append("&");
-            }
-            sb.append(entry.getKey()).append("=").append(entry.getValue());
-            index++;
-        }
-
-        return sb.toString();
+        jdbcConf.setProperties(finalProperties);
     }
 
     /**
@@ -417,7 +416,8 @@ public class JdbcUtil {
             JdbcConf jdbcConf, JdbcDialect jdbcDialect, RawTypeConverter converter) {
         try (Connection conn = JdbcUtil.getConnection(jdbcConf, jdbcDialect)) {
             Pair<List<String>, List<String>> pair =
-                    JdbcUtil.getTableMetaData(jdbcConf.getSchema(), jdbcConf.getTable(), conn);
+                    JdbcUtil.getTableMetaData(
+                            null, jdbcConf.getSchema(), jdbcConf.getTable(), conn);
             List<String> rawFieldNames = pair.getLeft();
             List<String> rawFieldTypes = pair.getRight();
             return TableUtil.createRowType(rawFieldNames, rawFieldTypes, converter);
@@ -428,10 +428,6 @@ public class JdbcUtil {
 
     /** 解析schema.table 或者 "schema"."table"等格式的表名 获取对应的schema以及table * */
     public static void resetSchemaAndTable(JdbcConf jdbcConf, String leftQuote, String rightQuote) {
-        LOG.info(
-                "before reset table info, schema: {}, table: {}",
-                jdbcConf.getSchema(),
-                jdbcConf.getTable());
         String pattern =
                 String.format(
                         "(?i)(%s(?<schema>(.*))%s\\.%s(?<table>(.*))%s)",
@@ -452,6 +448,11 @@ public class JdbcUtil {
         }
 
         if (StringUtils.isNotBlank(schema)) {
+            LOG.info(
+                    "before reset table info, schema: {}, table: {}",
+                    jdbcConf.getSchema(),
+                    jdbcConf.getTable());
+
             jdbcConf.setSchema(schema);
             jdbcConf.setTable(table);
             LOG.info(
